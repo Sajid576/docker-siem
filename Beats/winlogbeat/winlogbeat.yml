@@ -1,81 +1,87 @@
-###################### Auditbeat Configuration Example #########################
+###################### Winlogbeat Configuration Example ########################
 
-# This is an example configuration file highlighting only the most common
-# options. The auditbeat.reference.yml file from the same directory contains all
-# the supported options with more comments. You can use it as a reference.
+# This file is an example configuration file highlighting only the most common
+# options. The winlogbeat.reference.yml file from the same directory contains
+# all the supported options with more comments. You can use it as a reference.
 #
 # You can find the full configuration reference here:
-# https://www.elastic.co/guide/en/beats/auditbeat/index.html
+# https://www.elastic.co/guide/en/beats/winlogbeat/index.html
 
-# =========================== Modules configuration ============================
-auditbeat.modules:
+# ======================== Winlogbeat specific options =========================
 
-- module: auditd
-  # Load audit rules from separate files. Same format as audit.rules(7).
-  audit_rule_files: [ '${path.config}/audit.rules.d/*.conf' ]
-  audit_rules: |
-    ## Define audit rules here.
-    ## Create file watches (-w) or syscall audits (-a or -A). Uncomment these
-    ## examples or add your own rules.
+# event_logs specifies a list of event logs to monitor as well as any
+# accompanying options. The YAML data type of event_logs is a list of
+# dictionaries.
+#
+# The supported keys are name, id, xml_query, tags, fields, fields_under_root,
+# forwarded, ignore_older, level, event_id, provider, and include_xml.
+# The xml_query key requires an id and must not be used with the name,
+# ignore_older, level, event_id, or provider keys. Please visit the
+# documentation for the complete details of each option.
+# https://go.es.io/WinlogbeatConfig
 
-    ## If you are on a 64 bit platform, everything should be running
-    ## in 64 bit mode. This rule will detect any use of the 32 bit syscalls
-    ## because this might be a sign of someone exploiting a hole in the 32
-    ## bit API.
-    #-a always,exit -F arch=b32 -S all -F key=32bit-abi
+winlogbeat.event_logs:
+  - name: Application
+    ignore_older: 72h
 
-    ## Executions.
-    #-a always,exit -F arch=b64 -S execve,execveat -k exec
+  - name: System
 
-    ## External access (warning: these can be expensive to audit).
-    #-a always,exit -F arch=b64 -S accept,bind,connect -F key=external-access
+  - name: Security
+    processors:
+      - script:
+          lang: javascript
+          id: security
+          file: ${path.home}/module/security/config/winlogbeat-security.js
 
-    ## Identity changes.
-    #-w /etc/group -p wa -k identity
-    #-w /etc/passwd -p wa -k identity
-    #-w /etc/gshadow -p wa -k identity
+  - name: Microsoft-Windows-Sysmon/Operational
+    processors:
+      - script:
+          lang: javascript
+          id: sysmon
+          file: ${path.home}/module/sysmon/config/winlogbeat-sysmon.js
 
-    ## Unauthorized access attempts.
-    #-a always,exit -F arch=b64 -S open,creat,truncate,ftruncate,openat,open_by_handle_at -F exit=-EACCES -k access
-    #-a always,exit -F arch=b64 -S open,creat,truncate,ftruncate,openat,open_by_handle_at -F exit=-EPERM -k access
+  - name: Windows PowerShell
+    event_id: 400, 403, 600, 800
+    processors:
+      - script:
+          lang: javascript
+          id: powershell
+          file: ${path.home}/module/powershell/config/winlogbeat-powershell.js
 
-- module: file_integrity
-  paths:
-  - /bin
-  - /usr/bin
-  - /sbin
-  - /usr/sbin
-  - /etc
+  - name: Microsoft-Windows-PowerShell/Operational
+    event_id: 4103, 4104, 4105, 4106
+    processors:
+      - script:
+          lang: javascript
+          id: powershell
+          file: ${path.home}/module/powershell/config/winlogbeat-powershell.js
 
-- module: system
-  datasets:
-    - package # Installed, updated, and removed packages
+  - name: ForwardedEvents
+    tags: [forwarded]
+    processors:
+      - script:
+          when.equals.winlog.channel: Security
+          lang: javascript
+          id: security
+          file: ${path.home}/module/security/config/winlogbeat-security.js
+      - script:
+          when.equals.winlog.channel: Microsoft-Windows-Sysmon/Operational
+          lang: javascript
+          id: sysmon
+          file: ${path.home}/module/sysmon/config/winlogbeat-sysmon.js
+      - script:
+          when.equals.winlog.channel: Windows PowerShell
+          lang: javascript
+          id: powershell
+          file: ${path.home}/module/powershell/config/winlogbeat-powershell.js
+      - script:
+          when.equals.winlog.channel: Microsoft-Windows-PowerShell/Operational
+          lang: javascript
+          id: powershell
+          file: ${path.home}/module/powershell/config/winlogbeat-powershell.js
 
-  period: 2m # The frequency at which the datasets check for changes
+# ====================== Elasticsearch template settings =======================
 
-- module: system
-  datasets:
-    - host    # General host information, e.g. uptime, IPs
-    - login   # User logins, logouts, and system boots.
-    - process # Started and stopped processes
-    - socket  # Opened and closed sockets
-    - user    # User information
-
-  # How often datasets send state updates with the
-  # current state of the system (e.g. all currently
-  # running processes, all open sockets).
-  state.period: 12h
-
-  # Enabled by default. Auditbeat will read password fields in
-  # /etc/passwd and /etc/shadow and store a hash locally to
-  # detect any changes.
-  user.detect_password_changes: true
-
-  # File patterns of the login record files.
-  login.wtmp_file_pattern: /var/log/wtmp*
-  login.btmp_file_pattern: /var/log/btmp*
-
-# ======================= Elasticsearch template setting =======================
 setup.template.settings:
   index.number_of_shards: 1
   #index.codec: best_compression
@@ -114,12 +120,14 @@ setup.template.settings:
 # Starting with Beats version 6.0.0, the dashboards are loaded via the Kibana API.
 # This requires a Kibana endpoint configuration.
 setup.kibana:
-
+  host: "https://192.168.36.209:5601"
+  ssl.enabled: true 
+  ssl.verification_mode: none
   # Kibana Host
   # Scheme and port can be left out and will be set to the default (http and 5601)
   # In case you specify and additional path, the scheme is required: http://localhost:5601/path
   # IPv6 addresses should always be defined as: https://[2001:db8::1]:5601
-  host: "localhost:5601"
+  #host: "localhost:5601"
 
   # Kibana Space ID
   # ID of the Kibana Space into which the dashboards should be loaded. By default,
@@ -128,7 +136,7 @@ setup.kibana:
 
 # =============================== Elastic Cloud ================================
 
-# These settings simplify using Auditbeat with the Elastic Cloud (https://cloud.elastic.co/).
+# These settings simplify using Winlogbeat with the Elastic Cloud (https://cloud.elastic.co/).
 
 # The cloud.id setting overwrites the `output.elasticsearch.hosts` and
 # `setup.kibana.host` options.
@@ -149,12 +157,14 @@ output.elasticsearch:
   hosts: ["localhost:9200"]
 
   # Protocol - either `http` (default) or `https`.
-  #protocol: "https"
+  protocol: "https"
 
   # Authentication credentials - either API key or username/password.
   #api_key: "id:api_key"
   username: "elastic"
-  password: "password"
+  password: "password"            
+  ssl.enabled: true  
+  ssl.verification_mode: none
 
 # ------------------------------ Logstash Output -------------------------------
 #output.logstash:
@@ -172,14 +182,10 @@ output.elasticsearch:
   #ssl.key: "/etc/pki/client/cert.key"
 
 # ================================= Processors =================================
-
-# Configure processors to enhance or manipulate events generated by the beat.
-
 processors:
-  - add_host_metadata: ~
+  - add_host_metadata:
+      when.not.contains.tags: forwarded
   - add_cloud_metadata: ~
-  - add_docker_metadata: ~
-
 
 # ================================== Logging ===================================
 
@@ -193,7 +199,7 @@ processors:
 #logging.selectors: ["*"]
 
 # ============================= X-Pack Monitoring ==============================
-# Auditbeat can export internal metrics to a central Elasticsearch monitoring
+# Winlogbeat can export internal metrics to a central Elasticsearch monitoring
 # cluster.  This requires xpack monitoring to be enabled in Elasticsearch.  The
 # reporting is disabled by default.
 
@@ -201,7 +207,7 @@ processors:
 #monitoring.enabled: false
 
 # Sets the UUID of the Elasticsearch cluster under which monitoring data for this
-# Auditbeat instance will appear in the Stack Monitoring UI. If output.elasticsearch
+# Winlogbeat instance will appear in the Stack Monitoring UI. If output.elasticsearch
 # is enabled, the UUID is derived from the Elasticsearch cluster referenced by output.elasticsearch.
 #monitoring.cluster_uuid:
 
@@ -216,12 +222,12 @@ processors:
 
 # ============================== Instrumentation ===============================
 
-# Instrumentation support for the auditbeat.
+# Instrumentation support for the winlogbeat.
 #instrumentation:
-    # Set to true to enable instrumentation of auditbeat.
+    # Set to true to enable instrumentation of winlogbeat.
     #enabled: false
 
-    # Environment in which auditbeat is running on (eg: staging, production, etc.)
+    # Environment in which winlogbeat is running on (eg: staging, production, etc.)
     #environment: ""
 
     # APM Server hosts to report instrumentation results to.
@@ -241,3 +247,5 @@ processors:
 # This allows to enable 6.7 migration aliases
 #migration.6_to_7.enabled: true
 
+# Pipeline to route events to security, sysmon, or powershell pipelines.
+pipeline: "winlogbeat-%{[7.17.9]}-routing"
