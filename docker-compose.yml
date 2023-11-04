@@ -9,7 +9,8 @@ services:
     environment:
       - xpack.security.enabled=true
       - bootstrap.memory_lock=false
-      - ELASTIC_PASSWORD=password
+      - ELASTICSEARCH_USERNAME=${ELASTICSEARCH_USERNAME}
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
       - discovery.type=single-node
       # Multi node setup
       # - node.name=es-01
@@ -32,24 +33,9 @@ services:
     volumes:
       - ./Beats/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
-      # You can add additional paths to monitor here
     networks:
       - elastic
 
-#  logstash:
-#    container_name: logstash
-#    image: docker.elastic.co/logstash/logstash:7.12.0
-#    ports:
-#       - "5044:5044"
-#       - "5000:5000/tcp"
-#       - "5000:5000/udp"
-#    volumes:
-#       - ./ELK/logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml
-#       - ./ELK/logstash/pipeline:/usr/share/logstash/pipeline
-#    depends_on:
-#      - elasticsearch
-#    networks:
-#      - elastic
  
   kibana:
     container_name: kibana
